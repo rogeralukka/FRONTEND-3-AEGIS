@@ -12,6 +12,7 @@ import {
   Plus,
   Check,
   X,
+  RotateCcw,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import {
@@ -24,8 +25,10 @@ interface AegisAiPanelProps {
   caseData: CaseInvestigationData;
   isCollapsed: boolean;
   isSolved: boolean;
+  isCaseComplete?: boolean;
   onToggleCollapse: () => void;
   onReturnToActive: () => void;
+  onReopenCase?: () => void;
   onAddEvidence?: (item: MockEvidencePickerItem) => void;
 }
 
@@ -33,8 +36,10 @@ export const AegisAiPanel: React.FC<AegisAiPanelProps> = ({
   caseData,
   isCollapsed,
   isSolved,
+  isCaseComplete = false,
   onToggleCollapse,
   onReturnToActive,
+  onReopenCase,
   onAddEvidence,
 }) => {
   const { theme } = useTheme();
@@ -339,19 +344,33 @@ export const AegisAiPanel: React.FC<AegisAiPanelProps> = ({
             </ul>
           </div>
 
-          {/* Return Action */}
+          {/* Action Button: Return to Active (if not complete) OR Reopen Investigation (if complete) */}
           <div className="pt-4">
-            <button
-              onClick={onReturnToActive}
-              className={`w-full py-2.5 px-4 rounded-lg font-mono text-xs uppercase tracking-wider font-medium border flex items-center justify-center gap-2 transition-colors duration-200 ${
-                isDark
-                  ? 'border-white/10 bg-white/[0.04] text-[#EDEAE3] hover:bg-white/[0.08]'
-                  : 'border-black/10 bg-black/[0.03] text-[#1A1C1E] hover:bg-black/[0.06]'
-              }`}
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Return to Active Investigation</span>
-            </button>
+            {isCaseComplete ? (
+              <button
+                onClick={onReopenCase}
+                className={`w-full py-2.5 px-4 rounded-lg font-mono text-xs uppercase tracking-wider font-medium border flex items-center justify-center gap-2 transition-colors duration-200 cursor-pointer ${
+                  isDark
+                    ? 'border-[#74AC95]/30 bg-[#74AC95]/10 text-[#74AC95] hover:bg-[#74AC95]/20'
+                    : 'border-[#1E6147]/30 bg-[#1E6147]/10 text-[#1E6147] hover:bg-[#1E6147]/20'
+                }`}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>REOPEN INVESTIGATION</span>
+              </button>
+            ) : (
+              <button
+                onClick={onReturnToActive}
+                className={`w-full py-2.5 px-4 rounded-lg font-mono text-xs uppercase tracking-wider font-medium border flex items-center justify-center gap-2 transition-colors duration-200 cursor-pointer ${
+                  isDark
+                    ? 'border-white/10 bg-white/[0.04] text-[#EDEAE3] hover:bg-white/[0.08]'
+                    : 'border-black/10 bg-black/[0.03] text-[#1A1C1E] hover:bg-black/[0.06]'
+                }`}
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Return to Active Investigation</span>
+              </button>
+            )}
           </div>
 
         </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import {
   MOCK_INVESTIGATION_CASE,
@@ -11,18 +11,20 @@ import { EvidenceGraph } from '../components/investigation/EvidenceGraph';
 import { EntityInspector } from '../components/investigation/EntityInspector';
 import { AegisAiPanel } from '../components/investigation/AegisAiPanel';
 import { CaseItem } from './CasesPage';
-import { loadStoredCases } from '../services/caseService';
+import { loadStoredCases, updateCaseStatus } from '../services/caseService';
 
 interface InvestigationRoomPageProps {
   caseId?: string;
   cases?: CaseItem[];
   onNavigateBack?: () => void;
+  onUpdateCaseStatus?: (caseId: string, status: 'INVESTIGATION ACTIVE' | 'INVESTIGATION COMPLETE') => void;
 }
 
 export const InvestigationRoomPage: React.FC<InvestigationRoomPageProps> = ({
   caseId,
   cases: propCases,
   onNavigateBack,
+  onUpdateCaseStatus,
 }) => {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -86,15 +88,58 @@ export const InvestigationRoomPage: React.FC<InvestigationRoomPageProps> = ({
   }));
   const [selectedNode, setSelectedNode] = useState<GraphNodeData | null>(null);
   const [isAiCollapsed, setIsAiCollapsed] = useState<boolean>(false);
-  const [isSolved, setIsSolved] = useState<boolean>(false);
+
+  // Track status from resolvedCase, defaulting to 'INVESTIGATION ACTIVE'
+  const [caseStatus, setCaseStatus] = useState<'INVESTIGATION ACTIVE' | 'INVESTIGATION COMPLETE'>(
+    resolvedCase.status || 'INVESTIGATION ACTIVE'
+  );
+
+  // If case is already complete, open directly in resolution state (Section 2)
+  const isInitiallyComplete = resolvedCase.status === 'INVESTIGATION COMPLETE';
+  const [isSolved, setIsSolved] = useState<boolean>(Boolean(isInitiallyComplete));
+
+  // Sync state if active case identity changes
+  useEffect(() => {
+    if (resolvedCase) {
+      setCaseStatus(resolvedCase.status);
+      setIsSolved(resolvedCase.status === 'INVESTIGATION COMPLETE');
+    }
+  }, [resolvedCase?.id, resolvedCase?.status]);
 
   // Handle solve case toggle
   const handleSolveToggle = () => {
-    setIsSolved((prev) => !prev);
-    // If opening resolution, automatically expand AI panel to present conclusion
-    if (!isSolved) {
-      setIsAiCollapsed(false);
-    }
+    setIsSolved((prev) => {
+      const next = !prev;
+      // If opening resolution, automatically expand AI panel to present conclusion
+      if (next) {
+        setIsAiCollapsed(false);
+      }
+      return next;
+    });
+  };
+
+  // Handle return to active investigation (working state)
+  const handleReturnToActive = () => {
+    setIsSolved(false);
+  };
+
+  // Handle close case (Section 2)
+  const handleCloseCase = () => {
+    const nextStatus = 'INVESTIGATION COMPLETE';
+    setCaseStatus(nextStatus);
+    setIsSolved(true);
+    updateCaseStatus(resolvedCase.id, nextStatus);
+    onUpdateCaseStatus?.(resolvedCase.id, nextStatus);
+    onNavigateBack?.();
+  };
+
+  // Handle reopen investigation (Section 3)
+  const handleReopenCase = () => {
+    const nextStatus = 'INVESTIGATION ACTIVE';
+    setCaseStatus(nextStatus);
+    setIsSolved(false);
+    updateCaseStatus(resolvedCase.id, nextStatus);
+    onUpdateCaseStatus?.(resolvedCase.id, nextStatus);
   };
 
   // Handle adding mock evidence item
@@ -122,10 +167,15 @@ export const InvestigationRoomPage: React.FC<InvestigationRoomPageProps> = ({
       <CaseContextStrip
         caseId={resolvedCase.id}
         title={resolvedCase.title}
+        status={caseStatus}
         isSolved={isSolved}
         evidenceCount={caseData.evidenceCount}
         confidence={caseData.confidence}
         onSolveToggle={handleSolveToggle}
+        onCloseCase={handleCloseCase}
+        onReturnToActive={handleReturnToActive}
+        onReopenCase={handleReopenCase}
+        onNavigateBack={onNavigateBack}
       />
 
       {/* 2. BODY SPLIT CANVAS AREA */}
@@ -155,8 +205,10 @@ export const InvestigationRoomPage: React.FC<InvestigationRoomPageProps> = ({
           caseData={caseData}
           isCollapsed={isAiCollapsed}
           isSolved={isSolved}
+          isCaseComplete={caseStatus === 'INVESTIGATION COMPLETE'}
           onToggleCollapse={() => setIsAiCollapsed((prev) => !prev)}
-          onReturnToActive={() => setIsSolved(false)}
+          onReturnToActive={handleReturnToActive}
+          onReopenCase={handleReopenCase}
           onAddEvidence={handleAddEvidence}
         />
 
