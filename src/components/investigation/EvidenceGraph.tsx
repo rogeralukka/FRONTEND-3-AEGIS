@@ -7,17 +7,66 @@ interface EvidenceGraphProps {
   edges: GraphEdgeData[];
   selectedNodeId: string | null;
   isSolved: boolean;
+  isCaseComplete?: boolean;
   onSelectNode: (node: GraphNodeData | null) => void;
 }
 
 const NODE_WIDTH = 144;
 const NODE_HEIGHT = 62;
 
+// Smooth 600ms animated confidence number component
+export const AnimatedConfidence: React.FC<{ value?: number; className?: string }> = ({
+  value,
+  className,
+}) => {
+  const [displayValue, setDisplayValue] = useState<number | undefined>(value);
+  const prevValueRef = useRef<number | undefined>(value);
+
+  useEffect(() => {
+    if (value === undefined) {
+      setDisplayValue(undefined);
+      return;
+    }
+    const startVal = prevValueRef.current ?? value;
+    prevValueRef.current = value;
+
+    if (startVal === value) {
+      setDisplayValue(value);
+      return;
+    }
+
+    let startTimestamp: number | null = null;
+    const duration = 600; // 600ms per specification
+    let animationFrameId: number;
+
+    const step = (timestamp: number) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const elapsed = timestamp - startTimestamp;
+      const progress = Math.min(elapsed / duration, 1);
+      // Quad ease-out: progress * (2 - progress)
+      const ease = progress * (2 - progress);
+      const current = Math.round(startVal + (value - startVal) * ease);
+      setDisplayValue(current);
+
+      if (progress < 1) {
+        animationFrameId = requestAnimationFrame(step);
+      }
+    };
+
+    animationFrameId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [value]);
+
+  if (displayValue === undefined) return null;
+  return <span className={className}>{displayValue}%</span>;
+};
+
 export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
   nodes: initialNodes,
   edges,
   selectedNodeId,
   isSolved,
+  isCaseComplete = false,
   onSelectNode,
 }) => {
   const { theme } = useTheme();
@@ -37,6 +86,22 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
   const isPanningRef = useRef<boolean>(false);
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const draggingNodeRef = useRef<{ id: string; startX: number; startY: number; nodeStartX: number; nodeStartY: number } | null>(null);
+
+  // Track animated nodes and edges so animations run only when newly revealed
+  const animatedNodeIdsRef = useRef<Set<string>>(new Set());
+  const animatedEdgeIdsRef = useRef<Set<string>>(new Set());
+  const isInitialMountRef = useRef<boolean>(true);
+
+  // If the case is already complete or loaded solved on mount, mark all current nodes/edges as already animated
+  useEffect(() => {
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      if (isCaseComplete || isSolved) {
+        initialNodes.forEach((n) => animatedNodeIdsRef.current.add(n.id));
+        edges.forEach((e) => animatedEdgeIdsRef.current.add(e.id));
+      }
+    }
+  }, [isCaseComplete, isSolved, initialNodes, edges]);
 
   // Sync initial nodes if prop updates
   useEffect(() => {
@@ -155,6 +220,29 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
   // Node Map for edge calculations
   const nodeMap = new Map<string, GraphNodeData>(nodes.map((n) => [n.id, n]));
 
+  // Find newly added nodes and edges for staggered entrance animations
+  let newNodeCounter = 0;
+  const newNodesStaggerMap = new Map<string, number>();
+  nodes.forEach((n) => {
+    if (!animatedNodeIdsRef.current.has(n.id)) {
+      newNodesStaggerMap.set(n.id, newNodeCounter++);
+    }
+  });
+
+  let newEdgeCounter = 0;
+  const newEdgesStaggerMap = new Map<string, number>();
+  edges.forEach((e) => {
+    if (!animatedEdgeIdsRef.current.has(e.id)) {
+      newEdgesStaggerMap.set(e.id, newEdgeCounter++);
+    }
+  });
+
+  // Mark newly processed items into the ref
+  useEffect(() => {
+    nodes.forEach((n) => animatedNodeIdsRef.current.add(n.id));
+    edges.forEach((e) => animatedEdgeIdsRef.current.add(e.id));
+  }, [nodes, edges]);
+
   return (
     <div
       ref={containerRef}
@@ -190,6 +278,31 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
             }
             .contradiction-edge {
               animation: contradiction-pulse 3.5s ease-in-out infinite;
+            }
+            @keyframes aegis-node-appear {
+              0% {
+                opacity: 0;
+                transform: scale(0.85);
+              }
+              100% {
+                opacity: 1;
+                transform: scale(1);
+              }
+            }
+            .aegis-node-enter {
+              animation: aegis-node-appear 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+              transform-origin: center center;
+            }
+            @keyframes aegis-edge-draw-line {
+              from {
+                stroke-dashoffset: var(--edge-len);
+              }
+              to {
+                stroke-dashoffset: 0;
+              }
+            }
+            .aegis-edge-entering {
+              animation: aegis-edge-draw-line 500ms ease-out both;
             }
           `}</style>
         </defs>
@@ -233,6 +346,12 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
             edgeClass = '';
           }
 
+          // Edge draw animation calculation for newly added edge
+          const isNewEdge = newEdgesStaggerMap.has(edge.id);
+          const edgeLength = Math.round(Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2))) || 200;
+          const staggerIdx = newEdgesStaggerMap.get(edge.id) ?? 0;
+          const animDelayMs = staggerIdx * 180 + 80;
+
           return (
             <g key={edge.id} className="transition-opacity duration-300">
               <line
@@ -242,8 +361,17 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
                 y2={y2}
                 stroke={strokeColor}
                 strokeWidth={strokeWidth}
-                strokeDasharray={strokeDasharray}
-                className={edgeClass}
+                strokeDasharray={isNewEdge ? edgeLength : strokeDasharray}
+                strokeDashoffset={isNewEdge ? edgeLength : undefined}
+                style={
+                  isNewEdge
+                    ? ({
+                        ['--edge-len' as any]: `${edgeLength}px`,
+                        animationDelay: `${animDelayMs}ms`,
+                      } as React.CSSProperties)
+                    : undefined
+                }
+                className={`${edgeClass} ${isNewEdge ? 'aegis-edge-entering' : ''}`}
               />
             </g>
           );
@@ -263,6 +391,10 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
           const isPrimeSuspect = node.semantic === 'prime_suspect';
           const isDimmed = isSolved && !isPrimeSuspect;
 
+          const isNewNode = newNodesStaggerMap.has(node.id);
+          const staggerIdx = newNodesStaggerMap.get(node.id) ?? 0;
+          const animDelayMs = staggerIdx * 180;
+
           return (
             <div
               key={node.id}
@@ -272,13 +404,16 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
                 top: `${node.y}px`,
                 width: `${NODE_WIDTH}px`,
                 height: `${NODE_HEIGHT}px`,
+                animationDelay: isNewNode ? `${animDelayMs}ms` : undefined,
               }}
               onMouseDown={(e) => handleNodeMouseDown(e, node)}
               onClick={(e) => {
                 e.stopPropagation();
                 onSelectNode(node);
               }}
-              className={`absolute pointer-events-auto rounded-[7px] border p-2.5 flex flex-col justify-between transition-shadow duration-200 cursor-pointer ${getNodeSemanticClasses(
+              className={`absolute pointer-events-auto rounded-[7px] border p-2.5 flex flex-col justify-between transition-shadow duration-200 cursor-pointer ${
+                isNewNode ? 'aegis-node-enter' : ''
+              } ${getNodeSemanticClasses(
                 node.semantic,
                 isDimmed
               )} ${isSelected ? 'ring-2 ring-[#6B9B85]' : ''}`}
@@ -288,10 +423,11 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
                 <span className={`uppercase tracking-wider font-semibold ${getNodeBadgeColor(node.semantic)}`}>
                   {node.category}
                 </span>
-                {node.confidence && (
-                  <span className={isDark ? 'text-[#EDEAE3]/40' : 'text-[#1A1C1E]/40'}>
-                    {node.confidence}%
-                  </span>
+                {node.confidence !== undefined && (
+                  <AnimatedConfidence
+                    value={node.confidence}
+                    className={isDark ? 'text-[#EDEAE3]/40' : 'text-[#1A1C1E]/40'}
+                  />
                 )}
               </div>
 

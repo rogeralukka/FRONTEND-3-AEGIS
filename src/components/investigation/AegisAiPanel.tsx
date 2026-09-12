@@ -18,21 +18,29 @@ import {
   MockEvidencePickerItem,
   MOCK_EVIDENCE_PICKER_ITEMS,
 } from '../../data/mockInvestigationData';
+import { SuggestedNextSteps } from './SuggestedNextSteps';
+import { SuggestionChipItem } from '../../data/investigationDiscoverySequence';
 
 interface AegisAiPanelProps {
   caseData: CaseInvestigationData;
+  suggestions?: SuggestionChipItem[];
   isCollapsed: boolean;
   isSolved: boolean;
   onToggleCollapse: () => void;
   onAddEvidence?: (item: MockEvidencePickerItem) => void;
+  onSelectSuggestion?: (item: SuggestionChipItem) => void;
+  onSubmitDispatch?: (text: string) => void;
 }
 
 export const AegisAiPanel: React.FC<AegisAiPanelProps> = ({
   caseData,
+  suggestions = [],
   isCollapsed,
   isSolved,
   onToggleCollapse,
   onAddEvidence,
+  onSelectSuggestion,
+  onSubmitDispatch,
 }) => {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -54,6 +62,22 @@ export const AegisAiPanel: React.FC<AegisAiPanelProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
+
+  // Sync logs from caseData whenever caseData.logs updates
+  useEffect(() => {
+    setLocalLogs(caseData.logs);
+  }, [caseData.logs]);
+
+  // Auto-scroll feed on new log arrival
+  useEffect(() => {
+    if (feedRef.current) {
+      feedRef.current.scrollTo({
+        top: feedRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  }, [localLogs]);
 
   // Close evidence picker on click outside
   useEffect(() => {
@@ -97,20 +121,32 @@ export const AegisAiPanel: React.FC<AegisAiPanelProps> = ({
 
   const handleSendPrompt = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!promptInput.trim()) return;
+    const trimmed = promptInput.trim();
+    if (!trimmed) return;
 
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-
-    setLocalLogs((prev) => [
-      ...prev,
-      {
-        timestamp: timeStr,
-        label: 'QUERY RESULT',
-        text: `Correlated inquiry: "${promptInput.trim()}" matched against primary evidence cluster.`,
-      },
-    ]);
+    if (onSubmitDispatch) {
+      onSubmitDispatch(trimmed);
+    } else {
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      setLocalLogs((prev) => [
+        ...prev,
+        {
+          timestamp: timeStr,
+          label: 'USER DISPATCH',
+          text: trimmed,
+        },
+      ]);
+    }
     setPromptInput('');
+  };
+
+  const handleSuggestionClick = (item: SuggestionChipItem) => {
+    if (onSelectSuggestion) {
+      onSelectSuggestion(item);
+    } else if (onSubmitDispatch) {
+      onSubmitDispatch(item.label);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -343,12 +379,55 @@ export const AegisAiPanel: React.FC<AegisAiPanelProps> = ({
           
           {/* Scrollable Intelligence Feed with soft dissolving alpha mask */}
           <div
+            ref={feedRef}
             className="flex-1 overflow-y-auto p-6 space-y-5 text-xs"
             style={{
               maskImage: 'linear-gradient(to bottom, black calc(100% - 48px), transparent 100%)',
               WebkitMaskImage: 'linear-gradient(to bottom, black calc(100% - 48px), transparent 100%)',
             }}
           >
+            <style>{`
+              @keyframes log-enter-pulse-dark {
+                0% {
+                  opacity: 0;
+                  transform: translateY(6px);
+                  background-color: rgba(107, 155, 133, 0.28);
+                }
+                20% {
+                  opacity: 1;
+                  transform: translateY(0);
+                  background-color: rgba(107, 155, 133, 0.22);
+                }
+                100% {
+                  opacity: 1;
+                  transform: translateY(0);
+                  background-color: transparent;
+                }
+              }
+              @keyframes log-enter-pulse-light {
+                0% {
+                  opacity: 0;
+                  transform: translateY(6px);
+                  background-color: rgba(30, 97, 71, 0.16);
+                }
+                20% {
+                  opacity: 1;
+                  transform: translateY(0);
+                  background-color: rgba(30, 97, 71, 0.10);
+                }
+                100% {
+                  opacity: 1;
+                  transform: translateY(0);
+                  background-color: transparent;
+                }
+              }
+              .log-item-pulse-dark {
+                animation: log-enter-pulse-dark 800ms ease-out both;
+              }
+              .log-item-pulse-light {
+                animation: log-enter-pulse-light 800ms ease-out both;
+              }
+            `}</style>
             
             {/* CURRENT OBJECTIVE */}
             <div>
@@ -429,25 +508,43 @@ export const AegisAiPanel: React.FC<AegisAiPanelProps> = ({
               </span>
 
               <div className="space-y-3">
-                {localLogs.map((log, idx) => (
-                  <div key={idx} className="flex items-start gap-3 text-[11px] leading-relaxed">
-                    <span className="font-mono text-[10px] opacity-40 shrink-0 select-none pt-0.5">
-                      {log.timestamp}
-                    </span>
-                    <span
-                      className={`font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 select-none ${
-                        isDark ? 'bg-white/[0.05] text-[#74AC95]' : 'bg-black/[0.05] text-[#1E6147]'
+                {localLogs.map((log, idx) => {
+                  const isLatest = idx === localLogs.length - 1;
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-start gap-3 text-[11px] leading-relaxed p-1.5 -mx-1.5 rounded-lg transition-colors ${
+                        isLatest
+                          ? isDark
+                            ? 'log-item-pulse-dark'
+                            : 'log-item-pulse-light'
+                          : ''
                       }`}
                     >
-                      {log.label}
-                    </span>
-                    <span className="font-sans opacity-85">{log.text}</span>
-                  </div>
-                ))}
+                      <span className="font-mono text-[10px] opacity-40 shrink-0 select-none pt-0.5">
+                        {log.timestamp}
+                      </span>
+                      <span
+                        className={`font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 select-none ${
+                          isDark ? 'bg-white/[0.05] text-[#74AC95]' : 'bg-black/[0.05] text-[#1E6147]'
+                        }`}
+                      >
+                        {log.label}
+                      </span>
+                      <span className="font-sans opacity-85">{log.text}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
           </div>
+
+          {/* Suggested Next Steps Strip (positioned between the Investigation Log and the composer) */}
+          <SuggestedNextSteps
+            suggestions={suggestions}
+            onSelectSuggestion={handleSuggestionClick}
+          />
 
           {/* Bottom Input Area: Floating card zone with soft fade transition above */}
           <div className="px-4 pb-4 pt-1 shrink-0 relative">
