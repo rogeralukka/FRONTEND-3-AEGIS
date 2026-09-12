@@ -205,10 +205,7 @@ export const InvestigationRoomPage: React.FC<InvestigationRoomPageProps> = ({
           caseData={caseData}
           isCollapsed={isAiCollapsed}
           isSolved={isSolved}
-          isCaseComplete={caseStatus === 'INVESTIGATION COMPLETE'}
           onToggleCollapse={() => setIsAiCollapsed((prev) => !prev)}
-          onReturnToActive={handleReturnToActive}
-          onReopenCase={handleReopenCase}
           onAddEvidence={handleAddEvidence}
         />
 

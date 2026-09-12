@@ -108,13 +108,14 @@ export const CaseContextStrip: React.FC<CaseContextStripProps> = ({
             {onNavigateBack && (
               <button
                 onClick={onNavigateBack}
-                className={`h-8 px-3.5 rounded-md font-mono text-xs uppercase tracking-wider font-medium border transition-colors duration-200 focus:outline-none cursor-pointer ${
+                className={`h-8 px-4 rounded-full font-sans text-xs uppercase tracking-widest font-medium border transition-all duration-200 focus:outline-none cursor-pointer flex items-center gap-1.5 ${
                   isDark
-                    ? 'border-white/20 bg-white/[0.05] text-[#EDEAE3]/80 hover:bg-white/[0.10] hover:text-[#EDEAE3]'
-                    : 'border-black/20 bg-black/[0.04] text-[#1A1C1E]/80 hover:bg-black/[0.08] hover:text-[#1A1C1E]'
+                    ? 'border-white/15 bg-transparent text-[#EDEAE3]/75 hover:text-[#EDEAE3] hover:bg-white/[0.06] hover:border-white/25'
+                    : 'border-black/15 bg-transparent text-[#1A1C1E]/75 hover:text-[#1A1C1E] hover:bg-black/[0.05] hover:border-black/25'
                 }`}
               >
-                ← Case Files
+                <span>←</span>
+                <span>CASE FILES</span>
               </button>
             )}
             <button
@@ -133,13 +134,14 @@ export const CaseContextStrip: React.FC<CaseContextStripProps> = ({
           <>
             <button
               onClick={onReturnToActive ?? onSolveToggle}
-              className={`h-8 px-3.5 rounded-md font-mono text-xs uppercase tracking-wider font-medium border transition-colors duration-200 focus:outline-none cursor-pointer ${
+              className={`h-8 px-4 rounded-full font-sans text-xs uppercase tracking-widest font-medium border transition-all duration-200 focus:outline-none cursor-pointer flex items-center gap-1.5 ${
                 isDark
-                  ? 'border-white/20 bg-white/[0.05] text-[#EDEAE3] hover:bg-white/[0.10]'
-                  : 'border-black/20 bg-black/[0.04] text-[#1A1C1E] hover:bg-black/[0.08]'
+                  ? 'border-white/15 bg-transparent text-[#EDEAE3]/75 hover:text-[#EDEAE3] hover:bg-white/[0.06] hover:border-white/25'
+                  : 'border-black/15 bg-transparent text-[#1A1C1E]/75 hover:text-[#1A1C1E] hover:bg-black/[0.05] hover:border-black/25'
               }`}
             >
-              ← Return to Active Investigation
+              <span>←</span>
+              <span>RETURN TO ACTIVE INVESTIGATION</span>
             </button>
             <button
               onClick={onCloseCase}
