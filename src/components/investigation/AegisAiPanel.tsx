@@ -24,6 +24,8 @@ import { SuggestionChipItem } from '../../data/investigationDiscoverySequence';
 interface AegisAiPanelProps {
   caseData: CaseInvestigationData;
   suggestions?: SuggestionChipItem[];
+  consumedActions?: string[];
+  pendingActionId?: string | null;
   isCollapsed: boolean;
   isSolved: boolean;
   onToggleCollapse: () => void;
@@ -35,6 +37,8 @@ interface AegisAiPanelProps {
 export const AegisAiPanel: React.FC<AegisAiPanelProps> = ({
   caseData,
   suggestions = [],
+  consumedActions = [],
+  pendingActionId = null,
   isCollapsed,
   isSolved,
   onToggleCollapse,
@@ -543,6 +547,8 @@ export const AegisAiPanel: React.FC<AegisAiPanelProps> = ({
           {/* Suggested Next Steps Strip (positioned between the Investigation Log and the composer) */}
           <SuggestedNextSteps
             suggestions={suggestions}
+            consumedActions={consumedActions}
+            pendingActionId={pendingActionId}
             onSelectSuggestion={handleSuggestionClick}
           />
 
