@@ -134,10 +134,10 @@ export const CaseContextStrip: React.FC<CaseContextStripProps> = ({
           <>
             <button
               onClick={onReturnToActive ?? onSolveToggle}
-              className={`h-8 px-4 rounded-full font-sans text-xs uppercase tracking-widest font-medium border transition-all duration-200 focus:outline-none cursor-pointer flex items-center gap-1.5 ${
+              className={`h-8 px-4 rounded-full font-sans text-xs uppercase tracking-widest font-medium border transition-colors duration-200 focus:outline-none cursor-pointer flex items-center gap-1.5 ${
                 isDark
-                  ? 'border-white/15 bg-transparent text-[#EDEAE3]/75 hover:text-[#EDEAE3] hover:bg-white/[0.06] hover:border-white/25'
-                  : 'border-black/15 bg-transparent text-[#1A1C1E]/75 hover:text-[#1A1C1E] hover:bg-black/[0.05] hover:border-black/25'
+                  ? 'bg-[rgba(210,210,210,0.10)] border-white/[0.06] text-[#EDEAE3] hover:bg-[rgba(210,210,210,0.16)]'
+                  : 'bg-[#D2D2D2] border-black/[0.04] text-[#1A1C1E] hover:bg-[#C8C8C8]'
               }`}
             >
               <span>←</span>
