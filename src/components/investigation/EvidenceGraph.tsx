@@ -13,6 +13,108 @@ interface EvidenceGraphProps {
 
 const NODE_WIDTH = 144;
 const NODE_HEIGHT = 62;
+const MIN_GAP = 32;
+const REQ_WIDTH = NODE_WIDTH + MIN_GAP; // 176
+const REQ_HEIGHT = NODE_HEIGHT + MIN_GAP; // 94
+
+/**
+ * Resolves rectangle overlaps and maintains minimum margin between nodes.
+ * User-placed nodes are treated as fixed anchors (0 displacement).
+ * For new vs existing node collisions, new node takes 85% displacement and existing nudges 15%.
+ */
+function resolveCollisions(
+  nodes: GraphNodeData[],
+  userPlacedIds: Set<string> = new Set(),
+  newlyAddedIds: Set<string> = new Set()
+): GraphNodeData[] {
+  const resolved = nodes.map((n) => ({ ...n }));
+  if (resolved.length <= 1) return resolved;
+
+  const MAX_ITERATIONS = 20;
+
+  for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+    let anyCollision = false;
+
+    // Centroid of graph to determine outward direction if nodes are perfectly stacked
+    const centroidX = resolved.reduce((sum, n) => sum + n.x, 0) / resolved.length;
+    const centroidY = resolved.reduce((sum, n) => sum + n.y, 0) / resolved.length;
+
+    for (let i = 0; i < resolved.length; i++) {
+      for (let j = i + 1; j < resolved.length; j++) {
+        const a = resolved[i];
+        const b = resolved[j];
+
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const ox = REQ_WIDTH - Math.abs(dx);
+        const oy = REQ_HEIGHT - Math.abs(dy);
+
+        if (ox > 0 && oy > 0) {
+          anyCollision = true;
+
+          const isAUser = userPlacedIds.has(a.id);
+          const isBUser = userPlacedIds.has(b.id);
+
+          // If both are manually placed by the user, both are fixed anchors
+          if (isAUser && isBUser) {
+            continue;
+          }
+
+          let ratioA = 0.5;
+          let ratioB = 0.5;
+
+          if (isAUser) {
+            ratioA = 0;
+            ratioB = 1.0;
+          } else if (isBUser) {
+            ratioA = 1.0;
+            ratioB = 0;
+          } else {
+            const isANew = newlyAddedIds.has(a.id);
+            const isBNew = newlyAddedIds.has(b.id);
+            if (isANew && !isBNew) {
+              ratioA = 0.85;
+              ratioB = 0.15;
+            } else if (isBNew && !isANew) {
+              ratioA = 0.15;
+              ratioB = 0.85;
+            }
+          }
+
+          // Choose axis of minimal normalized overlap to preserve intended placement
+          const nx = ox / REQ_WIDTH;
+          const ny = oy / REQ_HEIGHT;
+
+          if (nx < ny) {
+            // Separate along X
+            let dirX = Math.sign(dx);
+            if (dirX === 0) {
+              dirX = b.x >= centroidX ? 1 : -1;
+            }
+            a.x -= dirX * ox * ratioA;
+            b.x += dirX * ox * ratioB;
+          } else {
+            // Separate along Y
+            let dirY = Math.sign(dy);
+            if (dirY === 0) {
+              dirY = b.y >= centroidY ? 1 : -1;
+            }
+            a.y -= dirY * oy * ratioA;
+            b.y += dirY * oy * ratioB;
+          }
+        }
+      }
+    }
+
+    if (!anyCollision) break;
+  }
+
+  return resolved.map((n) => ({
+    ...n,
+    x: Math.round(n.x * 10) / 10,
+    y: Math.round(n.y * 10) / 10,
+  }));
+}
 
 // Smooth 600ms animated confidence number component
 export const AnimatedConfidence: React.FC<{ value?: number; className?: string }> = ({
@@ -72,8 +174,25 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
   const { theme } = useTheme();
   const isDark = theme === 'dark';
 
-  // Node positions state for dragging
-  const [nodes, setNodes] = useState<GraphNodeData[]>(initialNodes);
+  // Tracks nodes that have been explicitly dragged by user to a custom position
+  const userPlacedNodeIdsRef = useRef<Set<string>>(new Set());
+
+  // Tracks settled positions of nodes in canvas coordinates so layout stays stable across re-renders
+  const settledPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+
+  // Active dragging state for instantaneous response
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+
+  // Initialize node state with collision-resolved coordinates
+  const [nodes, setNodes] = useState<GraphNodeData[]>(() => {
+    const resolved = resolveCollisions(
+      initialNodes,
+      new Set(),
+      new Set(initialNodes.map((n) => n.id))
+    );
+    resolved.forEach((n) => settledPositionsRef.current.set(n.id, { x: n.x, y: n.y }));
+    return resolved;
+  });
 
   // Pan and Zoom transform
   const [transform, setTransform] = useState<{ x: number; y: number; scale: number }>({
@@ -103,9 +222,39 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
     }
   }, [isCaseComplete, isSolved, initialNodes, edges]);
 
-  // Sync initial nodes if prop updates
+  // Sync initial nodes when prop updates (e.g. progressive discovery stage advancement)
   useEffect(() => {
-    setNodes(initialNodes);
+    // Prune stale IDs from userPlaced and settled positions if case changed
+    const currentPropIds = new Set(initialNodes.map((n) => n.id));
+    for (const id of Array.from(userPlacedNodeIdsRef.current)) {
+      if (!currentPropIds.has(id)) userPlacedNodeIdsRef.current.delete(id);
+    }
+    for (const id of Array.from(settledPositionsRef.current.keys())) {
+      if (!currentPropIds.has(id)) settledPositionsRef.current.delete(id);
+    }
+
+    // Build candidates: keep settled/dragged coordinates for existing nodes, identify newly added nodes
+    const newlyAddedIds = new Set<string>();
+    const candidates = initialNodes.map((n) => {
+      const settled = settledPositionsRef.current.get(n.id);
+      if (settled) {
+        return { ...n, x: settled.x, y: settled.y };
+      }
+      newlyAddedIds.add(n.id);
+      return { ...n };
+    });
+
+    const resolved = resolveCollisions(
+      candidates,
+      userPlacedNodeIdsRef.current,
+      newlyAddedIds
+    );
+
+    resolved.forEach((n) => {
+      settledPositionsRef.current.set(n.id, { x: n.x, y: n.y });
+    });
+
+    setNodes(resolved);
   }, [initialNodes]);
 
   // Handle Canvas Wheel Zoom
@@ -134,8 +283,18 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
       const dx = (e.clientX - startX) / transform.scale;
       const dy = (e.clientY - startY) / transform.scale;
 
+      // Mark as user-placed if dragged more than 3px
+      if (Math.hypot(e.clientX - startX, e.clientY - startY) > 3) {
+        userPlacedNodeIdsRef.current.add(id);
+      }
+
+      const nextX = Math.round((nodeStartX + dx) * 10) / 10;
+      const nextY = Math.round((nodeStartY + dy) * 10) / 10;
+
+      settledPositionsRef.current.set(id, { x: nextX, y: nextY });
+
       setNodes((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, x: nodeStartX + dx, y: nodeStartY + dy } : n))
+        prev.map((n) => (n.id === id ? { ...n, x: nextX, y: nextY } : n))
       );
       return;
     }
@@ -153,6 +312,7 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
   const handleMouseUp = useCallback(() => {
     isPanningRef.current = false;
     draggingNodeRef.current = null;
+    setDraggingNodeId(null);
   }, []);
 
   useEffect(() => {
@@ -174,6 +334,7 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
       nodeStartX: node.x,
       nodeStartY: node.y,
     };
+    setDraggingNodeId(node.id);
   };
 
   // Semantic styles for node cards
@@ -363,14 +524,17 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
                 strokeWidth={strokeWidth}
                 strokeDasharray={isNewEdge ? edgeLength : strokeDasharray}
                 strokeDashoffset={isNewEdge ? edgeLength : undefined}
-                style={
-                  isNewEdge
+                style={{
+                  transition: draggingNodeId
+                    ? 'none'
+                    : 'x1 350ms cubic-bezier(0.16, 1, 0.3, 1), y1 350ms cubic-bezier(0.16, 1, 0.3, 1), x2 350ms cubic-bezier(0.16, 1, 0.3, 1), y2 350ms cubic-bezier(0.16, 1, 0.3, 1)',
+                  ...(isNewEdge
                     ? ({
                         ['--edge-len' as any]: `${edgeLength}px`,
                         animationDelay: `${animDelayMs}ms`,
                       } as React.CSSProperties)
-                    : undefined
-                }
+                    : {}),
+                }}
                 className={`${edgeClass} ${isNewEdge ? 'aegis-edge-entering' : ''}`}
               />
             </g>
@@ -394,6 +558,7 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
           const isNewNode = newNodesStaggerMap.has(node.id);
           const staggerIdx = newNodesStaggerMap.get(node.id) ?? 0;
           const animDelayMs = staggerIdx * 180;
+          const isBeingDragged = draggingNodeId === node.id;
 
           return (
             <div
@@ -405,13 +570,16 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
                 width: `${NODE_WIDTH}px`,
                 height: `${NODE_HEIGHT}px`,
                 animationDelay: isNewNode ? `${animDelayMs}ms` : undefined,
+                transition: isBeingDragged
+                  ? 'box-shadow 200ms ease, opacity 200ms ease'
+                  : 'left 350ms cubic-bezier(0.16, 1, 0.3, 1), top 350ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms ease, opacity 200ms ease',
               }}
               onMouseDown={(e) => handleNodeMouseDown(e, node)}
               onClick={(e) => {
                 e.stopPropagation();
                 onSelectNode(node);
               }}
-              className={`absolute pointer-events-auto rounded-[7px] border p-2.5 flex flex-col justify-between transition-shadow duration-200 cursor-pointer ${
+              className={`absolute pointer-events-auto rounded-[7px] border p-2.5 flex flex-col justify-between cursor-pointer ${
                 isNewNode ? 'aegis-node-enter' : ''
               } ${getNodeSemanticClasses(
                 node.semantic,
